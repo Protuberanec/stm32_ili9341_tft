@@ -3,6 +3,8 @@
  *
  *  Created on: 11 окт. 2020 г.
  *      Author: Tugrik
+ *
+ *      this library is not universal... but very fast!!! I hope
  */
 
 #include "spi.h"
@@ -14,25 +16,41 @@
  *  pa7 - mosi
  */
 
-uint8_t spi_buffer_tx[1024];
-uint8_t spi_buffer_rx[32];
+uint8_t spi_buffer_tx[BUFFER_SPI_SIZE];
+uint8_t spi_buffer_rx[BUFFER_SPI_SIZE];
+
+static void spi1_cs_set();
+
 
 void SPI1_IRQHandler() {
+	if (SPI1->SR & SPI_SR_RXNE) {
 
+	}
 }
+
+uint16_t status_dma_tx;
 
 void DMA1_Channel2_3_IRQHandler() {
 	if (DMA1->ISR & DMA_ISR_TCIF3) {
 		DMA1->IFCR |= DMA_IFCR_CTCIF3;
+		status_dma_tx = 1;
 	}
 
 	if (DMA1->ISR & DMA_ISR_TCIF2) {
 		DMA1->IFCR |= DMA_IFCR_CTCIF2;
-//		spi1_cs_set();
+		spi1_cs_set();	//when transfer is end CS is up, если использовать по передаче, то прерывания срабатывает не когда
+						//заканчивается передача данных, а когда опустошается буффер,
+						//программный чип селект конечно не лучший вариант, но возможно на этот же spi повесить ещё карту памяти
+						//или другую периферию...
+		status_dma_tx = 1;
 	}
 }
 
-void spi1_cs_set() {
+uint8_t spi1_dma_end() {
+	return status_dma_tx;
+}
+
+static void spi1_cs_set() {
 	GPIOC->BSRR = GPIO_BSRR_BS_4;
 }
 
@@ -58,6 +76,7 @@ static void spi1_dma_tx_init() {
 	DMA1_Channel3->CCR |= DMA_CCR_MINC;
 	DMA1_Channel3->CCR |= DMA_CCR_DIR;
 	DMA1_Channel3->CCR |= DMA_CCR_TCIE;
+	DMA1_Channel3->CCR &= ~DMA_CCR_HTIE;
 
 	NVIC_SetPriority(DMA1_Channel2_3_IRQn, 8);
 	NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
@@ -78,24 +97,29 @@ static void spi1_dma_rx_init() {
 	SPI1->CR2 |= SPI_CR2_RXDMAEN;
 }
 
-void spi1_master_init() {
-
-	for (int i = 0; i < 1024; i++) {
-		spi_buffer_tx[i] = i;
-	}
-
+void spi1_master_init(uint8_t am_bits_send) {
 	gpio_spi1_init();
 
 	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
 
-	SPI1->CR1 |= SPI_CR1_BR_1;	//fcplk/8 = 1MHz
+	SPI1->CR1 &= ~SPI_CR1_SPE;
+
+//#define DEBUG
+#ifdef DEBUG
+	SPI1->CR1 |= SPI_CR1_BR_0 | SPI_CR1_BR_2;
+#else
+	SPI1->CR1 &= ~SPI_CR1_BR;	// system_core_freq / 2
+#endif
+
+
 	SPI1->CR1 |= SPI_CR1_MSTR;	//master
+	SPI1->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI;	//software control by nss or SPI1->CR2 |= SPI_CR2_SSOE;
 
-	SPI1->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI;	//software control by nss
+	uint16_t DataSize = SPI1->CR2 & ~SPI_CR2_DS;
+	DataSize |= (am_bits_send - 1) << 8;
+	SPI1->CR2 = DataSize;
 
-	SPI1->CR2 &= ~SPI_CR2_DS_3;	//maxima speed is equal 4Mhz
-
-//	SPI1->CR2 |= SPI_CR2_SSOE;
+	SPI1->CR2 |= SPI_CR2_FRXTH;
 
 	spi1_dma_tx_init();
 	spi1_dma_rx_init();
@@ -103,33 +127,103 @@ void spi1_master_init() {
 	SPI1->CR1 |= SPI_CR1_SPE;
 }
 
-//here need to update the spi_buffer_tx
-void spi1_SendDataDMA(uint8_t* data, uint16_t write_size, uint16_t read_size) {
-//for read data init DMA
-	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
-	DMA1_Channel2->CNDTR = read_size;
-	if (read_size > 0) {
-		DMA1_Channel2->CCR |= DMA_CCR_EN;
-	}
+void spi1_setDataSize(uint8_t am_bits_send) {
+	SPI1->CR1 &= ~SPI_CR1_SPE;
+	uint16_t DataSize = SPI1->CR2 & ~SPI_CR2_DS;
+	DataSize |= (am_bits_send - 1) << 8;
+	SPI1->CR2 = DataSize;
+	SPI1->CR1 |= SPI_CR1_SPE;
+}
 
-//for write data init DMA
-	for (int i = 0; i < write_size; i++) {
-		spi_buffer_tx[i] = *(data + i);
+//here need to update the spi_buffer_tx
+void spi1_SendGetDataDMA_1Byte(uint8_t* data, uint16_t count_byte) {
+	status_dma_tx = 0;
+	spi1_setDataSize(8);
+
+	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel2->CCR |= DMA_CCR_MINC;
+	DMA1_Channel2->CNDTR = count_byte;
+	DMA1_Channel2->CCR |= DMA_CCR_EN;
+
+
+	//ooo may be copy data from local to global with DMA?? mem to mem
+	for (int i = 0; i < count_byte; i++) {
+		spi_buffer_tx[i] = data[i];
 	}
 
 	DMA1_Channel3->CCR &= ~DMA_CCR_EN;
-	DMA1_Channel3->CNDTR = write_size;
+	DMA1_Channel3->CNDTR = count_byte;
+	DMA1_Channel3->CCR |= DMA_CCR_MINC;	//increment memory
+	DMA1_Channel3->CCR &= ~DMA_CCR_MSIZE;
+	DMA1_Channel3->CCR &= ~DMA_CCR_PSIZE;	//size 8bits of data and peripheral
+
+	spi1_cs_clear();
+	DMA1_Channel3->CCR |= DMA_CCR_EN;	//start send data
+}
+
+void spi1_SendGetDataDMA_2byte(uint16_t *data, uint16_t count_word) {
+	status_dma_tx = 0;
+	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel2->CCR |= DMA_CCR_MINC;
+	if (count_word > 0) {
+		DMA1_Channel2->CNDTR = count_word << 1;	//if not mult by 2, CS will up in the middle of sending data
+		DMA1_Channel2->CCR |= DMA_CCR_EN;
+	}
+
+	DMA1_Channel3->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel3->CCR |= DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0;
+	DMA1_Channel3->CCR |= DMA_CCR_MINC;
+	DMA1_Channel3->CMAR = (uint32_t)(&spi_buffer_tx[0]);
+	DMA1_Channel3->CNDTR = count_word;
+
+	spi1_setDataSize(16);
+
+	count_word = count_word << 1;
+	for (int i = 0; i < count_word; i += 2, data++) {
+		spi_buffer_tx[i] =  0x00ff & (*data >> 8);
+		spi_buffer_tx[i+1] = 0x00ff & (*data);
+	}
+
+
 	spi1_cs_clear();
 	DMA1_Channel3->CCR |= DMA_CCR_EN;
 }
 
+//only send data....
+void spi1_SendDataDMA_2byteNTimes(uint16_t data, uint16_t count_word) {
+	status_dma_tx = 0;
+	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel2->CCR &= ~DMA_CCR_MINC;
 
+	count_word = count_word << 1;	//на каждый пиксель по 2 байта, поэтому необходимо это число умножить на 2!!!
+
+	if (count_word > 0) {
+		DMA1_Channel2->CNDTR = count_word;	//if not mult by 2, CS will up in the middle of sending data
+		DMA1_Channel2->CCR |= DMA_CCR_EN;
+	}
+
+	DMA1_Channel3->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel3->CCR |= DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0;
+	DMA1_Channel3->CCR &= ~DMA_CCR_MINC;
+	DMA1_Channel3->CMAR = (uint32_t)(&spi_buffer_tx[0]);
+	DMA1_Channel3->CNDTR = count_word;
+
+	spi1_setDataSize(16);
+
+//prepare data to send, because DMA don't work with local var, when function will finished local var will destroyed nad lost memory
+	spi_buffer_tx[0] =  0x00ff & (data >> 8);
+	spi_buffer_tx[1] = 0x00ff & (data);
+
+	spi1_cs_clear();
+	DMA1_Channel3->CCR |= DMA_CCR_EN;
+}
+//don't use....
 void spi1_putchar(uint16_t data) {
 
 	spi1_cs_set();
 
 	*(uint16_t *)&(SPI1->DR) = data;
-	while(SPI1->SR & SPI_SR_TXE != SPI_SR_TXE);
+	while((SPI1->SR & SPI_SR_TXE) != SPI_SR_TXE);
 
 	for (int i = 0; i < 16; i++);
 

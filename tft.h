@@ -36,11 +36,13 @@ void tft_display_off();	//0x28
 void tft_display_on();//0x29
 void tft_pixel_format();	//0x3A
 
+void tft_set_region(uint16_t row_start, uint16_t row_end, uint16_t col_start, uint16_t col_end);
 void tft_colorise(uint8_t red, uint8_t green, uint8_t blue);
 void tft_set_column(uint16_t col_start, uint16_t col_end);	//2A
 void tft_set_row(uint16_t row_start, uint16_t row_end);	//2B
 void tft_ram_write();	//2c
-void tft_set_color();	//2D
+
+void tft_clearAllDisplay(uint8_t red, uint8_t green, uint8_t blue);
 
 
 

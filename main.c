@@ -27,11 +27,17 @@ SOFTWARE.
 ******************************************************************************
 */
 
+
+/*	this program only for test tft display, can be used in real project, but you need to add any special function
+ * 	write character, draw geometric figure etc...
+ */
+
 /* Includes */
 #include "stm32f0xx.h"
 #include "spi.h"
 #include "tft.h"
 #include "usart.h"
+#include "tim.h"
 
 /* Private macro */
 /* Private variables */
@@ -46,30 +52,41 @@ SOFTWARE.
 **===========================================================================
 */
 
-extern cBuffer rx_buffer;
-
-uint8_t data_for_spi[16];
+uint8_t data_for_spi[8] = {0,0,0,0,0,0,0,0};
 uint8_t data_for_spi_ready = 0;
 uint8_t size_data_spi = 0;
 
 
+//start ----- only for debug....
+uint8_t red = 0x00;
+uint8_t blue = 0x00;
+uint8_t green = 0x00;
+uint16_t STEP_ROWS = 0x10;
+static uint16_t row_start = 0;
+static uint16_t row_end;
+static uint16_t col_start = 0;
+static uint16_t col_end = 239;
+//end ------ only for debug....
+
+
 void ProcessCmd() {
-	if (bufferHaveData(&rx_buffer) == 0) {
+	if (usart1_buffer() == 0) {
 		return;
 	}
 
-	uint8_t current_byte = bufferGetFromFront(&rx_buffer);
+	uint8_t current_byte = usart1_getByteFromBuffer();
 	USART1->TDR = current_byte;
 
 	static uint8_t status = 0;
-	static uint8_t ptrData = 1;
-	static uint8_t size_cmd;
+	static uint8_t ptrData = 0;
+	static uint8_t size_cmd = 0;
+	static uint8_t cmd = 0;
 
 	switch(status) {
 		case 0 :	//sync
 			if (current_byte == 0x7A) {
 				++status;
-				ptrData = 1;
+				ptrData = 0;
 			}
 		break;
 		case 1 :	//size
@@ -77,47 +94,116 @@ void ProcessCmd() {
 			size_data_spi = size_cmd;
 			++status;
 		break;
-
-		case 2 :	//cmd
-			data_for_spi[0] = current_byte;
+		case 2 :
 			++status;
-		break;
+			cmd = current_byte;
+			break;
 		case 3 :	//data
+		{
 			data_for_spi[ptrData] = current_byte;
 			++ptrData;
-			if (ptrData > size_cmd) {
+			if (ptrData > size_cmd - 1) {
 				status = 0;
-				data_for_spi_ready = 1;
+				switch(cmd) {
+				case 0x01 :	//colorize
+					red = data_for_spi[0];
+					green = data_for_spi[1];
+					blue = data_for_spi[2];
+					break;
+
+				case 0x02 :
+					row_start = data_for_spi[0] << 8 | data_for_spi[1];
+					row_end = data_for_spi[2] << 8 | data_for_spi[3];
+
+					col_start = data_for_spi[4] << 8 | data_for_spi[5];
+					col_end = data_for_spi[6] << 8 | data_for_spi[7];
+					break;
+				case 0x03 :
+					data_for_spi_ready = data_for_spi[0];
+					break;
+				}
 			}
+		}
 		break;
 	}
 }
 
+#ifdef DEBUG
 void SendToDisplay() {
-	if (data_for_spi_ready == 0)
+	if (data_for_spi_ready == 0) {
 		return;
-	tft_write_cmd(data_for_spi[0], &data_for_spi[1], size_data_spi);
+	}
 	data_for_spi_ready = 0;
+
+	//here can be called any test function to receive/send from/to send to display....
+
+	usart1_SlowSend1Byte(data_for_spi[0]);
+	usart1_SlowSend1Byte(data_for_spi[1]);
+	usart1_SlowSend1Byte(data_for_spi[2]);
+}
+#endif
+
+void clock48Mhz_init() {
+	RCC->CR &= ~RCC_CR_PLLON;
+	while(RCC->CR & RCC_CR_PLLRDY);
+
+	RCC->CFGR |= RCC_CFGR_PLLMUL12;
+
+	RCC->CR |= RCC_CR_PLLON;
+	while((RCC->CR & RCC_CR_PLLRDY) != RCC_CR_PLLRDY);
+
+	RCC->CFGR |= RCC_CFGR_SW_1;	//as PLL
+
+	SystemCoreClockUpdate();
 }
 
+void UpdateColor() {
+	if (data_for_spi_ready == 0) {
+		return;	//not allow to update color on a display
+	}
+//очень плохо....
+	if (!spi1_dma_end()) {
+		return;
+	}
 
+	data_for_spi_ready = 0;
+	tft_set_region(row_start, row_end, col_start, col_end);
+	for (int i = 0; i < 50; i++);
+	tft_colorise(red, green, blue);
+
+	row_start += STEP_ROWS;
+	row_end += STEP_ROWS;
+
+	if (row_start > 320) {
+		row_end = STEP_ROWS;
+		row_start = 0;
+		red += 2;
+		blue += 3;
+		for (int j = 0; j < 10; j++) {
+			for (int i = 0; i < 400000; i++);	//опять тупизм.... можно конечно с помощью таймера отситывать
+												//так нельзя!!! только для отладки и проверки скорости обновления
+												//содержания дисплея...
+		}
+	}
+}
 
 int main(void)
 {
-//	uint16_t data_spi = 0;
-//
-//	spi1_master_init();
-//	spi2_slave_init();
+	clock48Mhz_init();
+
+	row_end = STEP_ROWS;
 
 	usart1_init();
-	tft_init();
+	usart1_SendTestData();
+
+	tft_init();	//здесь тупить задержкой типа for(...) можно...
 
 
-	/* Infinite loop */
 	while (1)
 	{
+		//здесь тупить задержкой типа for(...) можно, но только если это оправдано и требует выдержки временных параметров...
+		UpdateColor();
 		ProcessCmd();
-		SendToDisplay();
 	}
 }
 
