@@ -22,6 +22,20 @@
 #include <stm32f0xx.h>
 #include "spi.h"
 
+#define LED_RCC	RCC_AHBENR_GPIOAEN
+#define LED_PORT	GPIOA
+#define	LED_PIN_MODER	GPIO_MODER_MODER3_0
+#define	LED_PIN	3
+
+#define DC_RS_RCC	RCC_AHBENR_GPIOAEN
+#define DC_RS_PORT	GPIOA
+#define DC_RS_PIN_MODER	GPIO_MODER_MODER2_0
+#define DC_RS_PIN	2
+
+#define RESET_RCC	RCC_AHBENR_GPIOAEN
+#define RESET_PORT	GPIOA
+#define RESET_PIN_MODER	GPIO_MODER_MODER1_0
+#define RESET_PIN	1
 
 void tft_init();
 void tft_gpio_init();

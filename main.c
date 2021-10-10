@@ -158,15 +158,15 @@ void clock48Mhz_init() {
 }
 
 void UpdateColor() {
-	if (data_for_spi_ready == 0) {
-		return;	//not allow to update color on a display
-	}
+//	if (data_for_spi_ready == 0) {
+//		return;	//not allow to update color on a display
+//	}
 //очень плохо....
 	if (!spi1_dma_end()) {
 		return;
 	}
 
-	data_for_spi_ready = 0;
+//	data_for_spi_ready = 0;
 	tft_set_region(row_start, row_end, col_start, col_end);
 	for (int i = 0; i < 50; i++);
 	tft_colorise(red, green, blue);
@@ -174,16 +174,12 @@ void UpdateColor() {
 	row_start += STEP_ROWS;
 	row_end += STEP_ROWS;
 
-	if (row_start > 320) {
+	if (row_start > 319) {
 		row_end = STEP_ROWS;
 		row_start = 0;
 		red += 2;
 		blue += 3;
-		for (int j = 0; j < 10; j++) {
-			for (int i = 0; i < 400000; i++);	//опять тупизм.... можно конечно с помощью таймера отситывать
-												//так нельзя!!! только для отладки и проверки скорости обновления
-												//содержания дисплея...
-		}
+		data_for_spi_ready = 1;
 	}
 }
 
@@ -199,8 +195,14 @@ int main(void)
 	tft_init();	//здесь тупить задержкой типа for(...) можно...
 
 
+	data_for_spi_ready = 1;
 	while (1)
 	{
+		for (int j = 0; j < 1; j++) {
+			for (int i = 0; i < 400000; i++);	//опять тупизм.... можно конечно с помощью таймера отсчитывать
+												//так нельзя!!! только для отладки и проверки скорости обновления
+												//содержания дисплея...
+		}
 		//здесь тупить задержкой типа for(...) можно, но только если это оправдано и требует выдержки временных параметров...
 		UpdateColor();
 		ProcessCmd();

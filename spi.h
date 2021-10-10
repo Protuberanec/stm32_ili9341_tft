@@ -10,6 +10,11 @@
 
 #include <stm32f0xx.h>
 
+#define CS_PORT	GPIOA
+#define CS_PORT_RCC	RCC_AHBENR_GPIOAEN
+#define CS_PIN_MODER	GPIO_MODER_MODER4_0
+#define CS_PIN	4
+
 #define BUFFER_SPI_SIZE	128
 
 void gpio_spi1_init();

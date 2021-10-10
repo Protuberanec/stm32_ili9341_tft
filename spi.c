@@ -51,16 +51,16 @@ uint8_t spi1_dma_end() {
 }
 
 static void spi1_cs_set() {
-	GPIOC->BSRR = GPIO_BSRR_BS_4;
+	CS_PORT->BSRR = 1 << CS_PIN;	//GPIO_BSRR_BS_4;
 }
 
 void spi1_cs_clear() {
-	GPIOC->BSRR = GPIO_BSRR_BR_4;
+	CS_PORT->BSRR = 1 << (CS_PIN + 16);	//GPIO_BSRR_BR_4;
 }
 
 void gpio_spi1_init() {
-	RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
-	GPIOC->MODER |= GPIO_MODER_MODER4_0;	//cs
+	RCC->AHBENR |= CS_PORT_RCC;
+	CS_PORT->MODER |= CS_PIN_MODER;	//cs
 	spi1_cs_set();
 
 	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;

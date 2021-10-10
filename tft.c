@@ -28,32 +28,31 @@
 
 
 void tft_gpio_init() {
-	RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
-	GPIOB->MODER |= GPIO_MODER_MODER0_0;	//LED
-	GPIOB->MODER |= GPIO_MODER_MODER1_0;	//DC/RS
+	RCC->AHBENR |= LED_RCC | DC_RS_RCC | RESET_RCC;
 
-	RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
-	GPIOC->MODER |= GPIO_MODER_MODER5_0;	//reset
+	LED_PORT->MODER |= LED_PIN_MODER;	//LED
+	DC_RS_PORT->MODER |= DC_RS_PIN_MODER;	//DC/RS
+	RESET_PORT->MODER |= RESET_PIN_MODER;	//reset
 }
 
 void tft_data() {
-	GPIOB->BSRR = GPIO_BSRR_BS_1;
+	DC_RS_PORT->BSRR = 1 << DC_RS_PIN;	//GPIO_BSRR_BS_x
 }
 
 void tft_cmd() {
-	GPIOB->BSRR = GPIO_BSRR_BR_1;
+	DC_RS_PORT->BSRR = 1 << (DC_RS_PIN + 16);	//GPIO_BSRR_BR_x
 }
 
 void tft_led_on() {
-	GPIOB->BSRR = GPIO_BSRR_BS_0;
+	LED_PORT->BSRR = 1 << LED_PIN;
 }
 
 void tft_led_off() {
-	GPIOB->BSRR = GPIO_BSRR_BR_0;
+	LED_PORT->BSRR = 1 << (LED_PIN + 16);
 }
 
 void tft_reset() {
-	GPIOC->BSRR = GPIO_BSRR_BS_5;
+	RESET_PORT->BSRR = 1 << RESET_PIN;
 }
 
 void tft_init() {
